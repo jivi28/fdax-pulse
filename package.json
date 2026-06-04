@@ -1,43 +1,36 @@
 {
-  "name": "frontend",
-  "version": "0.1.0",
+  "name": "fdax-pulse",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
-    "serve": "vue-cli-service serve",
-    "build": "vue-cli-service build",
-    "lint": "vue-cli-service lint"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "core-js": "^3.8.3",
-    "vue": "^3.2.13"
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.49.4",
+    "geist": "^1.7.0",
+    "lucide-react": "^0.511.0",
+    "next": "^16.2.6",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4"
   },
   "devDependencies": {
-    "@babel/core": "^7.12.16",
-    "@babel/eslint-parser": "^7.12.16",
-    "@vue/cli-plugin-babel": "~5.0.0",
-    "@vue/cli-plugin-eslint": "~5.0.0",
-    "@vue/cli-service": "~5.0.0",
-    "eslint": "^7.32.0",
-    "eslint-plugin-vue": "^8.0.3"
+    "@tailwindcss/postcss": "^4.1.10",
+    "@types/node": "^22.15.29",
+    "@types/react": "^19.1.6",
+    "@types/react-dom": "^19.1.5",
+    "eslint": "^9.28.0",
+    "eslint-config-next": "^16.2.6",
+    "tailwindcss": "^4.1.10",
+    "typescript": "^5.8.3"
   },
-  "eslintConfig": {
-    "root": true,
-    "env": {
-      "node": true
-    },
-    "extends": [
-      "plugin:vue/vue3-essential",
-      "eslint:recommended"
-    ],
-    "parserOptions": {
-      "parser": "@babel/eslint-parser"
-    },
-    "rules": {}
-  },
-  "browserslist": [
-    "> 1%",
-    "last 2 versions",
-    "not dead",
-    "not ie 11"
-  ]
+  "overrides": {
+    "next": {
+      "postcss": "^8.5.10"
+    }
+  }
 }
