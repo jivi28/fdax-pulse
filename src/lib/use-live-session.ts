@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ConnectionStatus, DecisionMode, ExchangeId } from "@/lib/domain";
 import { LIVE_INSTRUMENTS } from "@/lib/domain";
-import { connectFeed, type FeedConnection } from "@/lib/live-feed";
+import { connectFeed, fetchSeedBars, type FeedConnection } from "@/lib/live-feed";
 import { LiveEngine, type LiveSnapshot } from "@/lib/live-engine";
 
 const EXCHANGE_ORDER: ExchangeId[] = ["binance", "bybit"];
@@ -66,6 +66,19 @@ export function useLiveSession(initialSymbol = "BTCUSDT", initialMode: DecisionM
     engineRef.current = engine;
     exchangeIndexRef.current = 0;
     attemptsRef.current = 0;
+
+    // Seed recent history so the strategy calibrates and trades on load instead
+    // of warming up live for ~20 minutes. Failure is non-fatal (live warm-up).
+    void fetchSeedBars(instrument.symbol)
+      .then((seed) => {
+        if (aliveRef.current && engineRef.current === engine) {
+          engine.seed(seed);
+          setSnapshot(engine.snapshot());
+        }
+      })
+      .catch(() => {
+        /* region-blocked or offline: fall back to live warm-up */
+      });
 
     function clearRetry() {
       if (retryTimerRef.current) {
@@ -146,11 +159,18 @@ export function useLiveSession(initialSymbol = "BTCUSDT", initialMode: DecisionM
     if (engineRef.current) setSnapshot(engineRef.current.snapshot());
   }, []);
   const reset = useCallback(() => {
-    // Rebuild by nudging the instrument effect: briefly clear then restore.
-    setInstrumentSymbol((current) => current);
     const instrument = LIVE_INSTRUMENTS[instrumentSymbol] ?? LIVE_INSTRUMENTS.BTCUSDT;
-    engineRef.current = new LiveEngine({ instrument, decisionMode, dailyLossLimitUsd: DEFAULT_LOSS_LIMIT_USD });
+    const engine = new LiveEngine({ instrument, decisionMode, dailyLossLimitUsd: DEFAULT_LOSS_LIMIT_USD });
+    engineRef.current = engine; // the live feed's onTick reads engineRef dynamically
     setSnapshot(emptySnapshot());
+    void fetchSeedBars(instrument.symbol)
+      .then((seed) => {
+        if (engineRef.current === engine) {
+          engine.seed(seed);
+          setSnapshot(engine.snapshot());
+        }
+      })
+      .catch(() => undefined);
   }, [instrumentSymbol, decisionMode]);
 
   return {

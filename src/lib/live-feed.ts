@@ -16,6 +16,41 @@ export interface FeedHandlers {
   onError: () => void;
 }
 
+export interface SeedBar {
+  startMs: number;
+  orderflow: number;
+  volume: number;
+  close: number;
+}
+
+/**
+ * Pre-fill recent 1-minute history so the console can calibrate and trade
+ * immediately on load instead of warming up live for ~20 minutes.
+ *
+ * Binance 1m klines expose taker-buy base volume, so per minute:
+ *   volume    = base volume
+ *   orderflow = taker_buy - taker_sell = 2 * taker_buy - volume
+ * which matches the live tick-aggregated bars' units. The final (in-progress)
+ * candle is dropped so it does not collide with the live current minute.
+ * CORS is open (access-control-allow-origin: *), so this runs in the browser.
+ */
+export async function fetchSeedBars(symbol: string, bars = 30): Promise<SeedBar[]> {
+  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=1m&limit=${bars + 1}`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`klines ${response.status}`);
+  const rows = (await response.json()) as unknown[][];
+  return rows.slice(0, -1).map((row) => {
+    const volume = Number(row[5]);
+    const takerBuy = Number(row[9]);
+    return {
+      startMs: Number(row[0]),
+      orderflow: Math.round((2 * takerBuy - volume) * 1_000) / 1_000,
+      volume: Math.round(volume * 1_000) / 1_000,
+      close: Number(row[4]),
+    };
+  });
+}
+
 export interface FeedConnection {
   close: () => void;
 }

@@ -113,6 +113,35 @@ export class LiveEngine {
     this.config = { ...this.config, decisionMode: mode };
   }
 
+  /**
+   * Pre-fill completed historical minute bars and calibrate immediately. These
+   * bars seed the threshold distribution only — the strategy is NOT run on them
+   * (no fills are generated from history); it begins on the first live bar.
+   */
+  seed(bars: Array<{ startMs: number; orderflow: number; volume: number; close: number }>): void {
+    if (this.bars.length > 0) return;
+    for (const bar of bars) {
+      this.bars.push({
+        id: `${bar.startMs}`,
+        localTime: minuteLabel(bar.startMs),
+        close: bar.close,
+        bid: bar.close,
+        ask: bar.close,
+        orderflow: bar.orderflow,
+        volume: bar.volume,
+        buyVolume: 0,
+        sellVolume: 0,
+        unclassifiedVolume: 0,
+      });
+    }
+    const lastClose = bars.at(-1)?.close;
+    if (lastClose !== undefined) {
+      this.prevTradePrice = lastClose;
+      this.lastPrice = lastClose;
+    }
+    this.recalibrate();
+  }
+
   /** Classify a single trade against the current quote (Lee-Ready). */
   private classify(price: number, bid: number, ask: number, aggressor: LiveTick["aggressor"]): number | null {
     const midpoint = (bid + ask) / 2;
