@@ -1,24 +1,48 @@
 import type { Metadata } from "next";
-import { GeistSans } from "geist/font/sans";
-import { GeistMono } from "geist/font/mono";
+import { Newsreader, Archivo, IBM_Plex_Mono } from "next/font/google";
 
 import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
+// "The Orderflow Ledger" broadsheet type system: editorial serif display,
+// clean grotesk UI, tabular mono for every live figure.
+const serif = Newsreader({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  style: ["normal", "italic"],
+  variable: "--font-serif-src",
+  display: "swap",
+});
+const sans = Archivo({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-sans-src",
+  display: "swap",
+});
+const mono = IBM_Plex_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500", "600"],
+  variable: "--font-mono-src",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
-  title: "FDAX Pulse | Live Orderflow Paper Trading",
+  title: "Orderflow Pulse — Live Crypto-Futures Orderflow",
   description:
-    "Live paper-trading console running the Pecchiari orderflow strategy on a real public futures feed. Runs immediately — no setup required.",
+    "A premium broadsheet console running the Pecchiari orderflow strategy live on a real public futures feed. Runs immediately — no setup.",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable}`}>
-      <body>
-        <SiteHeader />
-        <main className="app-shell">{children}</main>
-        <footer className="site-footer">
-          Research simulation only. Live data from a public crypto-futures feed; FDAX uses delayed/local data where applicable. Paper only. No broker connection. No investment advice.
+    <html lang="en" className={`${serif.variable} ${sans.variable} ${mono.variable}`}>
+      <body className="app">
+        <div className="shell masthead-shell">
+          <SiteHeader />
+        </div>
+        <main className="shell">{children}</main>
+        <footer className="shell ledger-footer">
+          Research simulation only. Live data from a public crypto-futures feed; FDAX uses delayed/local data where applicable.
+          Paper only. No broker connection. No investment advice.
         </footer>
       </body>
     </html>

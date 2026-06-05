@@ -14,6 +14,11 @@ const fixtureFills = [
   { time: "09:10:00", side: "SELL", price: "18,002.0", reason: "Orderflow changed to -6" },
 ];
 
+function eur(value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)} EUR`;
+}
+
 export default function JournalPage() {
   const [session, setSession] = useState<WorkerSession | null>(null);
 
@@ -29,46 +34,83 @@ export default function JournalPage() {
         reason: fill.reason,
       }))
     : fixtureFills;
-  const sourceLabel = session
-    ? session.sourceMode === "delayed_paper"
-      ? "Delayed Paper"
-      : "CSV Replay"
-    : "Fixture Demo";
+  const sourceLabel = session ? (session.sourceMode === "delayed_paper" ? "Delayed Paper" : "CSV Replay") : "Fixture Demo";
   const netPnl = session ? session.realizedPnlEur : 25;
   const grossPnl = session ? session.grossPnlEur : 25;
   const positionCount = session ? Math.floor(session.fills.length / 2) : 3;
+
+  const summary: Array<{ k: string; v: string; cls?: string }> = [
+    { k: "Source", v: sourceLabel },
+    { k: "Net paper P&L", v: eur(netPnl), cls: netPnl >= 0 ? "up" : "dn" },
+    { k: "Gross reference", v: eur(grossPnl) },
+    { k: "Round-trips", v: String(positionCount) },
+    { k: "Fill model", v: session ? "Bid / ask realistic" : "Demo / reference" },
+    { k: "Contract math", v: session ? "Selected session spec" : "Demo only" },
+    { k: "Commission / slippage", v: "EUR 0.00 / 0 ticks" },
+    { k: "Thresholds", v: "24 / 242 · fixed" },
+  ];
+
   return (
-    <section className="document-page">
-      <p className="eyebrow">Paper Journal</p>
-      <h1>Paper session journal</h1>
-      <p className="lede">
-        Local delayed-paper and CSV sessions remain on your Mac by default. Optional Supabase sync
-        can populate this hosted view with compact session results. Without a local or synchronized session, the preview below is the fixture demo.
-      </p>
-      <article className="panel journal">
-        <div className="journal-summary">
-          <div><span>Source</span><strong>{sourceLabel}</strong></div>
-          <div><span>Net paper P&amp;L</span><strong className={netPnl >= 0 ? "positive" : "negative"}>{netPnl >= 0 ? "+" : ""}{netPnl.toFixed(2)} EUR</strong></div>
-          <div><span>Gross reference P&amp;L</span><strong>{grossPnl >= 0 ? "+" : ""}{grossPnl.toFixed(2)} EUR</strong></div>
-          <div><span>Positions</span><strong>{positionCount}</strong></div>
-          <div><span>Fill model</span><strong>{session ? "Bid / ask realistic" : "Demo / reference"}</strong></div>
-          <div><span>Contract math</span><strong>{session ? "Selected session spec" : "Demo only"}</strong></div>
-          <div><span>Commission / slippage</span><strong>EUR 0.00 / 0 ticks</strong></div>
+    <div className="doc stack">
+      <div className="doc-hero">
+        <p className="eyebrow">Paper Journal · Local-First</p>
+        <h1>The session ledger</h1>
+        <p className="doc-lede">
+          Live crypto, delayed-paper and CSV sessions all settle here. Live sessions stream in the browser; nothing
+          leaves your machine unless optional Supabase sync is configured — and then only <em>compact</em> results,
+          never raw exchange payloads.
+        </p>
+      </div>
+
+      <section className="summary-grid">
+        {summary.map((item) => (
+          <div key={item.k}>
+            <span className="k">{item.k}</span>
+            <span className={`v ${item.cls ?? ""}`} style={item.v.length > 14 ? { fontSize: 15 } : undefined}>
+              {item.v}
+            </span>
+          </div>
+        ))}
+      </section>
+
+      <section className="panel" style={{ padding: "var(--pad)" }}>
+        <div className="section-rule">
+          <h2>Fills</h2>
+          <span className="meta">{fills.length} entries</span>
         </div>
-        <table>
-          <thead><tr><th>Time CET</th><th>Action</th><th>Fill</th><th>Rationale</th></tr></thead>
-          <tbody>
-            {fills.map((fill, index) => (
-              <tr key={`${fill.time}-${fill.side}-${index}`}><td className="mono">{fill.time}</td><td><span className={`action ${fill.side.toLowerCase()}`}>{fill.side}</span></td><td className="mono">{fill.price}</td><td>{fill.reason}</td></tr>
-            ))}
-          </tbody>
-        </table>
-      </article>
-      <p className="notice">
-        {session
-          ? "Paper session output only. Delayed market data where applicable; no broker execution or expected-performance claim."
-          : "Toy deterministic fixture - not real FDAX market data and not a claim of expected performance."}
+        <div style={{ overflowX: "auto" }}>
+          <table className="blotter">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Side</th>
+                <th className="num">Fill</th>
+                <th>Rationale</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fills.map((fill, index) => (
+                <tr key={`${fill.time}-${fill.side}-${index}`}>
+                  <td className="mono">{fill.time}</td>
+                  <td>
+                    <span className={`side ${fill.side.toLowerCase()}`}>{fill.side}</span>
+                  </td>
+                  <td className="num mono">{fill.price}</td>
+                  <td className="rationale">{fill.reason}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <p className="ribbon">
+        <span>
+          {session
+            ? "Paper session output only. Delayed market data where applicable; no broker execution or expected-performance claim."
+            : "Toy deterministic fixture — not real FDAX market data and not a claim of expected performance."}
+        </span>
       </p>
-    </section>
+    </div>
   );
 }

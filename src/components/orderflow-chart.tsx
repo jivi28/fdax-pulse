@@ -6,147 +6,104 @@ interface Props {
   bars: MinuteBar[];
   signals: ReplaySignal[];
   threshold: number;
-  /** Index of the last bar that has been "seen" in fixture mode. -1 = none yet. */
+  /** Index of the last "seen" bar (replay). -1 = none. Live passes the last index. */
   activeIndex: number;
-  /** When false all bars are visible (non-fixture / completed replay). */
+  /** When true, bars beyond activeIndex are de-emphasised (replay reveal). */
   maskFuture?: boolean;
+  /** Caption timezone suffix, e.g. "CET". */
+  tz?: string;
 }
 
-const SVG_H = 160;
-const BAR_GAP = 3;
-const AXIS_H = 20;
-const CHART_H = SVG_H - AXIS_H;
-
-export function OrderflowChart({ bars, signals, threshold, activeIndex, maskFuture = false }: Props) {
+/**
+ * "The Orderflow Ledger" editorial orderflow chart: signed minute bars around a
+ * zero rule, deep-green up / oxblood down, with the live entry threshold marked
+ * and ▲ entry / ▼ exit signal pins. Pure SVG, no dependency.
+ */
+export function OrderflowChart({ bars, signals, threshold, activeIndex, maskFuture = false, tz = "" }: Props) {
   if (!bars.length) {
-    return <p className="muted empty-panel">Completed bars appear here once a session is running.</p>;
+    return <div className="empty">Completed bars appear here as the live tape closes each minute.</div>;
   }
 
-  const maxAbs = Math.max(...bars.map((b) => Math.abs(b.orderflow)), threshold + 10, 10);
-  const n = bars.length;
+  const W = 720;
+  const H = 210;
+  const padL = 4;
+  const padR = 4;
+  const padT = 16;
+  const padB = 22;
+  const data = bars.slice(-32);
+  const offset = bars.length - data.length;
+  const n = data.length || 1;
+  const innerW = W - padL - padR;
+  const innerH = H - padT - padB;
+  const zeroY = padT + innerH / 2;
+  const bw = innerW / n;
+  const maxAbs = Math.max(40, threshold + 8, ...data.map((b) => Math.abs(b.orderflow)));
+  const yOf = (v: number) => zeroY - (v / maxAbs) * (innerH / 2);
+  const thrY = yOf(threshold);
 
-  // We'll use a percentage-based SVG viewBox so it scales with the container.
-  // viewBox width = n columns, each 1 unit wide.
-  const viewBoxW = n;
-  const viewBoxH = SVG_H;
-
-  const barW = 1 - BAR_GAP / 30; // fractional column width
-
-  // Convert orderflow to a y position and height within CHART_H
-  function toY(value: number): number {
-    // centre line is at CHART_H / 2
-    const centre = CHART_H / 2;
-    return centre - (value / maxAbs) * (CHART_H / 2 - 4);
-  }
-
-  const centreY = CHART_H / 2;
-
-  // threshold line y position (positive side)
-  const thresholdY = toY(threshold);
-
-  // Map signal times to bar indexes for marker placement
-  const buyIndexes = new Set<number>();
-  const sellIndexes = new Set<number>();
+  const entryTimes = new Set<string>();
+  const exitTimes = new Set<string>();
   for (const sig of signals) {
     if (sig.status !== "executed") continue;
-    const t = sig.time.slice(0, 5); // "09:01"
-    const idx = bars.findIndex((b) => b.localTime === t || b.id === t);
-    if (idx === -1) continue;
-    if (sig.action === "buy") buyIndexes.add(idx);
-    else if (sig.action === "sell") sellIndexes.add(idx);
+    const t = sig.time.slice(0, 5);
+    if (sig.action === "buy") entryTimes.add(t);
+    else if (sig.action === "sell" || sig.action === "risk_halt") exitTimes.add(t);
+  }
+
+  function clock(ts: string) {
+    return ts.slice(0, 5);
   }
 
   return (
-    <svg
-      viewBox={`0 0 ${viewBoxW} ${viewBoxH}`}
-      preserveAspectRatio="none"
-      aria-label="Orderflow bar chart"
-      style={{ width: "100%", height: "100%", display: "block", overflow: "visible" }}
-    >
-      {/* Zero baseline */}
-      <line
-        x1={0} y1={centreY} x2={viewBoxW} y2={centreY}
-        stroke="var(--border-bright)" strokeWidth={0.04}
-      />
+    <div className="chart-wrap">
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block" }} preserveAspectRatio="none">
+        {[0.25, 0.75].map((p) => (
+          <line key={p} className="grid-line" x1={padL} x2={W - padR} y1={padT + innerH * p} y2={padT + innerH * p} />
+        ))}
+        {threshold > 0 && (
+          <>
+            <line className="thr-line" x1={padL} x2={W - padR} y1={thrY} y2={thrY} />
+            <text className="axis-label" x={W - padR} y={thrY - 5} textAnchor="end" style={{ fill: "var(--up)" }}>
+              ENTRY {threshold}
+            </text>
+          </>
+        )}
 
-      {/* Threshold dashed line (positive side) */}
-      <line
-        x1={0} y1={thresholdY} x2={viewBoxW} y2={thresholdY}
-        stroke="var(--accent)" strokeWidth={0.06} strokeDasharray="0.3 0.2" opacity={0.5}
-      />
-      {/* Threshold label — only draw if there's room (n > 3) */}
-      {n > 3 && (
-        <text
-          x={viewBoxW - 0.15}
-          y={thresholdY - 0.4}
-          fontSize={0.7}
-          fill="var(--accent)"
-          textAnchor="end"
-          opacity={0.7}
-        >
-          {threshold}
-        </text>
-      )}
+        {data.map((b, i) => {
+          const globalIndex = offset + i;
+          const future = maskFuture && globalIndex > activeIndex;
+          const x = padL + bw * i + bw * 0.18;
+          const w = bw * 0.64;
+          const pos = b.orderflow >= 0;
+          const y = pos ? yOf(b.orderflow) : zeroY;
+          const h = Math.max(1.5, Math.abs(yOf(b.orderflow) - zeroY));
+          const isEntry = entryTimes.has(b.localTime);
+          const isExit = exitTimes.has(b.localTime);
+          const opacity = future ? 0.18 : isEntry || isExit ? 1 : pos ? 0.82 : 0.5;
+          const cx = x + w / 2;
+          return (
+            <g key={b.id}>
+              <rect x={x} y={y} width={w} height={h} fill={pos ? "var(--up)" : "var(--down)"} opacity={opacity} />
+              {isEntry && !future && (
+                <polygon
+                  points={`${cx - 4},${zeroY + innerH / 2 + 4} ${cx + 4},${zeroY + innerH / 2 + 4} ${cx},${zeroY + innerH / 2 - 2}`}
+                  fill="var(--up)"
+                />
+              )}
+              {isExit && !future && (
+                <polygon points={`${cx - 4},${padT} ${cx + 4},${padT} ${cx},${padT + 6}`} fill="var(--down)" />
+              )}
+            </g>
+          );
+        })}
 
-      {bars.map((bar, i) => {
-        const future = maskFuture && i > activeIndex;
-        const active = maskFuture && i === activeIndex;
-        const of = bar.orderflow;
-        const positive = of >= 0;
-        const barHeight = Math.abs((of / maxAbs) * (CHART_H / 2 - 4));
-        const barY = positive ? centreY - barHeight : centreY;
-        const fill = future
-          ? "var(--border)"
-          : positive
-          ? "var(--accent)"
-          : "var(--danger)";
-        const opacity = future ? 0.3 : active ? 1 : 0.85;
-        const x = i + (1 - barW) / 2;
-
-        const hasBuy = buyIndexes.has(i);
-        const hasSell = sellIndexes.has(i);
-
-        // Buy marker: upward triangle below bar bottom
-        const buyMarkerY = centreY + 2.2;
-        // Sell marker: downward triangle above bar top
-        const sellMarkerY = barY - 1.5;
-
-        return (
-          <g key={bar.id}>
-            <rect
-              x={x} y={barY}
-              width={barW} height={Math.max(barHeight, 0.1)}
-              fill={fill} opacity={opacity} rx={0.1}
-            />
-            {/* X-axis label — every other bar to avoid crowding */}
-            {i % 2 === 0 && (
-              <text
-                x={i + 0.5} y={SVG_H - 2}
-                fontSize={0.65} fill="var(--muted)"
-                textAnchor="middle"
-              >
-                {bar.localTime}
-              </text>
-            )}
-            {/* Buy signal marker */}
-            {hasBuy && !future && (
-              <polygon
-                points={`${i + 0.5},${buyMarkerY - 1.4} ${i + 0.2},${buyMarkerY} ${i + 0.8},${buyMarkerY}`}
-                fill="var(--accent)"
-                opacity={0.9}
-              />
-            )}
-            {/* Sell signal marker */}
-            {hasSell && !future && (
-              <polygon
-                points={`${i + 0.5},${sellMarkerY + 1.4} ${i + 0.2},${sellMarkerY} ${i + 0.8},${sellMarkerY}`}
-                fill="var(--danger)"
-                opacity={0.9}
-              />
-            )}
-          </g>
-        );
-      })}
-    </svg>
+        <line className="zero-line" x1={padL} x2={W - padR} y1={zeroY} y2={zeroY} />
+      </svg>
+      <div className="chart-cap">
+        <span>{clock(data[0]?.localTime ?? "")}{tz ? " " + tz : ""}</span>
+        <span>signed orderflow · 1-min bars</span>
+        <span>{clock(data[data.length - 1]?.localTime ?? "")}{tz ? " " + tz : ""}</span>
+      </div>
+    </div>
   );
 }

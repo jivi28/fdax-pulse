@@ -1,25 +1,53 @@
+"use client";
+
 import Link from "next/link";
-import { DatabaseZap, Timer } from "lucide-react";
+import { usePathname } from "next/navigation";
+
+const NAV: Array<[string, string]> = [
+  ["/", "Live"],
+  ["/journal", "Journal"],
+  ["/methodology", "Methodology"],
+  ["/advanced", "FDAX Replay"],
+  ["/setup", "Setup"],
+];
 
 export function SiteHeader() {
+  const pathname = usePathname();
+  const today = new Date().toLocaleDateString("en-GB", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+
   return (
-    <header className="site-header">
-      <Link className="brand" href="/">
-        <span className="brand-mark">FDAX</span>
-        <span>PULSE</span>
-        <small>Live Orderflow Console</small>
-      </Link>
-      <nav aria-label="Primary navigation">
-        <Link href="/">Live</Link>
-        <Link href="/journal">Journal</Link>
-        <Link href="/methodology">Methodology</Link>
-        <Link href="/advanced">Advanced</Link>
-        <Link href="/setup">Setup</Link>
-      </nav>
-      <div className="header-badges">
-        <span className="badge warn"><Timer size={13} /> Paper only</span>
-        <span className="badge"><DatabaseZap size={13} /> Free tier</span>
+    <header className="masthead">
+      <div className="masthead-top">
+        <Link className="wordmark" href="/">
+          <span className="mark">
+            <i>Orderflow</i> <b>Pulse</b>
+          </span>
+          <span className="kicker">Live Crypto-Futures Tape · Paper Orderflow Research</span>
+        </Link>
+        <div className="masthead-meta">
+          <span className="dateline">{today}</span>
+          <span className="edition">Research Simulation · No Broker · No Advice</span>
+        </div>
       </div>
+      <nav className="masthead-nav" aria-label="Primary navigation">
+        {NAV.map(([href, label]) => {
+          const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
+          return (
+            <Link key={href} href={href} className={`navlink ${active ? "active" : ""}`}>
+              {label}
+            </Link>
+          );
+        })}
+        <span className="nav-spacer" />
+        <div className="nav-status">
+          <span className="badge">Paper · No Broker</span>
+        </div>
+      </nav>
     </header>
   );
 }

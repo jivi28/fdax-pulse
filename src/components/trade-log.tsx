@@ -1,19 +1,19 @@
+"use client";
+
 import type { PaperFill } from "@/lib/domain";
 
-interface TradeRow {
-  index: number;
-  entryTime: string;
-  exitTime: string;
-  entryPrice: number;
-  exitPrice: number;
-  ticks: number;
-  pnl: number;
+interface BlotterRow {
+  time: string;
+  side: "buy" | "sell";
+  price: number;
+  reason: string;
+  pnl: number | null;
 }
 
 /**
- * Scannable closed-trade table shared by the live console and the advanced
- * replay console. Trades are derived from [entry, exit] fill pairs, so callers
- * pass the flat fill list plus the instrument's tick economics.
+ * "The Orderflow Ledger" paper blotter — a ruled broadsheet table of every
+ * paper fill. Entries show "—" realized; exits show the round-trip P&L in green
+ * (win) or oxblood (loss). Shared by the live console and FDAX replay.
  */
 export function TradeLog({
   fills,
@@ -28,61 +28,62 @@ export function TradeLog({
   currency?: string;
   priceDecimals?: number;
 }) {
-  const rows: TradeRow[] = [];
-  for (let i = 0; i + 1 < fills.length; i += 2) {
-    const entry = fills[i];
-    const exit = fills[i + 1];
-    const ticks = (exit.price - entry.price) / tickSize;
-    rows.push({
-      index: rows.length + 1,
-      entryTime: entry.time,
-      exitTime: exit.time,
-      entryPrice: entry.price,
-      exitPrice: exit.price,
-      ticks: Math.round(ticks * 100) / 100,
-      pnl: ticks * tickValue,
-    });
+  const rows: BlotterRow[] = [];
+  let entryPrice: number | null = null;
+  for (const fill of fills) {
+    if (fill.side === "buy") {
+      entryPrice = fill.price;
+      rows.push({ time: fill.time, side: "buy", price: fill.price, reason: fill.reason, pnl: null });
+    } else {
+      const pnl = entryPrice !== null ? ((fill.price - entryPrice) / tickSize) * tickValue : null;
+      rows.push({ time: fill.time, side: "sell", price: fill.price, reason: fill.reason, pnl });
+      entryPrice = null;
+    }
   }
 
   if (rows.length === 0) {
-    return <p className="muted empty-panel">No closed trades yet. Each round trip lands here.</p>;
+    return <div className="empty">No paper fills yet this session.</div>;
+  }
+
+  function money(value: number) {
+    const sign = value > 0 ? "+" : "";
+    return `${sign}${value.toFixed(2)} ${currency}`;
   }
 
   return (
-    <table className="trade-log">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>In</th>
-          <th>Out</th>
-          <th>Entry</th>
-          <th>Exit</th>
-          <th>Ticks</th>
-          <th>P&amp;L</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows
-          .slice()
-          .reverse()
-          .map((row) => (
-            <tr key={row.index} className={row.pnl >= 0 ? "win" : "loss"}>
-              <td className="mono">{row.index}</td>
-              <td className="mono">{row.entryTime}</td>
-              <td className="mono">{row.exitTime}</td>
-              <td className="mono">{row.entryPrice.toFixed(priceDecimals)}</td>
-              <td className="mono">{row.exitPrice.toFixed(priceDecimals)}</td>
-              <td className={`mono ${row.ticks >= 0 ? "positive" : "negative"}`}>
-                {row.ticks > 0 ? "+" : ""}
-                {row.ticks}
-              </td>
-              <td className={`mono ${row.pnl >= 0 ? "positive" : "negative"}`}>
-                {row.pnl > 0 ? "+" : ""}
-                {row.pnl.toFixed(2)} {currency}
-              </td>
-            </tr>
-          ))}
-      </tbody>
-    </table>
+    <div style={{ overflowX: "auto" }}>
+      <table className="blotter">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Side</th>
+            <th className="num">Fill</th>
+            <th>Rationale</th>
+            <th className="num">Realized</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows
+            .slice()
+            .reverse()
+            .map((row, i) => (
+              <tr key={`${row.time}-${row.side}-${i}`}>
+                <td className="mono">{row.time}</td>
+                <td>
+                  <span className={`side ${row.side}`}>{row.side.toUpperCase()}</span>
+                </td>
+                <td className="num mono">{row.price.toFixed(priceDecimals)}</td>
+                <td className="rationale">{row.reason}</td>
+                <td
+                  className="num mono"
+                  style={{ color: row.pnl == null ? "var(--faint)" : row.pnl >= 0 ? "var(--up)" : "var(--down)" }}
+                >
+                  {row.pnl == null ? "—" : money(row.pnl)}
+                </td>
+              </tr>
+            ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
