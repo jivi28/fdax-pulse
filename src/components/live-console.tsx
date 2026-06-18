@@ -2,7 +2,7 @@
 
 import { EquityCurve } from "@/components/equity-curve";
 import { OrderflowChart } from "@/components/orderflow-chart";
-import { TradeLog } from "@/components/trade-log";
+import { SessionHistory } from "@/components/session-history";
 import { LIVE_INSTRUMENTS, type ConnectionStatus } from "@/lib/domain";
 import { CALIBRATION_MIN_BARS } from "@/lib/live-engine";
 import { useLiveSession } from "@/lib/use-live-session";
@@ -53,59 +53,27 @@ export function LiveConsole() {
 
   const pending = snapshot.pending;
   const tickerColor = (dir: number) => (dir > 0 ? "var(--up)" : dir < 0 ? "var(--down)" : "var(--ink)");
-
-  const tickerItems: Array<[string, string, number]> = [
-    [instrument.symbol, snapshot.lastPrice ? snapshot.lastPrice.toFixed(d) : "--", tickDir],
-    ["BID", snapshot.lastBid ? snapshot.lastBid.toFixed(d) : "--", 0],
-    ["ASK", snapshot.lastAsk ? snapshot.lastAsk.toFixed(d) : "--", 0],
-    ["SESSION P&L", usdt(total), total >= 0 ? 1 : -1],
-    ["ORDERFLOW", (curOf > 0 ? "+" : "") + num(curOf), curOf >= 0 ? 1 : -1],
-    ["VOLUME", num(curVol), 0],
-    ["OF TRIGGER", calibrated ? "› " + num(thr.orderflow) : "cal…", 0],
-    ["POSITION", inPos ? `LONG ${instrument.positionSize}` : "FLAT", 0],
-    ["TAPE", lastBar?.localTime ?? "--:--", 0],
-  ];
+  const lastFill = snapshot.fills.at(-1) ?? null;
 
   return (
     <div className="stack">
-      {/* Live ticker */}
-      <div className="ticker">
-        {tickerItems.map(([lab, val, dir]) => (
-          <div className="ticker-item" key={lab}>
-            <span className="lab">{lab}</span>
-            <span className="val" style={{ color: tickerColor(dir) }}>
-              {val}
-            </span>
-          </div>
-        ))}
-      </div>
-
       {/* Lead story */}
       <section className="lead">
         <div className="lead-main">
           <p className="eyebrow">
-            <span className="dot">●</span> Lead · Live Futures Orderflow · Paper Only
+            <span className="dot">●</span> Live Futures Orderflow · Paper Trading Only
           </p>
           <h1 className="lead-headline">
             {!calibrated
-              ? "Learning the live distribution before it arms"
+              ? "Calibrating — learning the live distribution"
               : inPos
-                ? `Holding ${instrument.positionSize} ${base} long on live orderflow`
-                : "Armed and watching the live tape for the next imbalance"}
+                ? `Holding ${instrument.positionSize} ${base} long`
+                : "Armed — waiting for the next entry signal"}
           </h1>
           <p className="lead-dek">
-            The Pecchiari orderflow method, running tick-for-tick on a <em>real, free</em> public
-            futures feed — <strong>{venue}</strong>, no keys, no entitlement. Entry thresholds
-            auto-calibrate to the live <strong>85th percentile</strong> of orderflow and volume; FDAX
-            itself needs paid data and lives in the <a className="tlink" href="/advanced">Replay</a> lab.
+            Runs the Pecchiari orderflow strategy on real {venue} futures data — free, no account needed.
+            Entry and exit thresholds recalibrate every minute to the live 85th percentile of orderflow and volume.
           </p>
-          <div className="byline">
-            <span className="who">{venue.toUpperCase()}</span>
-            <span>·</span>
-            <span>{instrument.label}</span>
-            <span>·</span>
-            <span>Lee-Ready classification · 24/7 tape</span>
-          </div>
         </div>
         <div className="lead-aside">
           <p className="eyebrow">Paper Account · Session P&amp;L</p>
@@ -127,6 +95,14 @@ export function LiveConsole() {
               <span className="k">Closed</span>
               <span className="v">{closed}</span>
             </div>
+            {lastFill && (
+              <div>
+                <span className="k">Last fill</span>
+                <span className="v" style={{ color: lastFill.side === "buy" ? "var(--up)" : "var(--down)" }}>
+                  {lastFill.side.toUpperCase()} {lastFill.price.toFixed(d)} · {lastFill.time}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -191,81 +167,6 @@ export function LiveConsole() {
         </section>
       )}
 
-      {/* Calibration ribbon */}
-      {!calibrated && (
-        <p className="ribbon">
-          <span>
-            Calibrating thresholds from the live distribution — <b>{thr.sample}/{CALIBRATION_MIN_BARS}</b> completed
-            minute bars collected. The strategy arms once the sample is sufficient.
-          </span>
-        </p>
-      )}
-
-      {/* Stat row */}
-      <section className="statrow">
-        <article className="stat">
-          <p className="eyebrow">Live Price · {base}</p>
-          <div className="pair">
-            <span className="tag">BID {snapshot.lastBid ? snapshot.lastBid.toFixed(d) : "--"}</span>
-            <span className="tag">ASK {snapshot.lastAsk ? snapshot.lastAsk.toFixed(d) : "--"}</span>
-          </div>
-          <div className="figure" style={{ color: tickerColor(tickDir) }}>
-            {snapshot.lastPrice ? snapshot.lastPrice.toFixed(d) : "--"}
-          </div>
-          <span className="sub">{connected ? `${instrument.label} · real public feed` : "connecting to live feed…"}</span>
-        </article>
-
-        <article className="stat">
-          <p className="eyebrow">Orderflow · Trigger</p>
-          <div className={`figure ${curOf >= 0 ? "up" : "dn"}`}>
-            {curOf > 0 ? "+" : ""}
-            {num(curOf)}
-          </div>
-          <div className="meter-row">
-            <div className={`meter ${ofArmed ? "armed" : ""}`}>
-              <i style={{ width: ofPct + "%" }} />
-            </div>
-            <span className="thr">{calibrated ? `› ${num(thr.orderflow)}` : "cal…"}</span>
-          </div>
-          <span className="sub">{!calibrated ? "calibrating threshold" : ofArmed ? "above entry threshold" : "below entry threshold"}</span>
-        </article>
-
-        <article className="stat">
-          <p className="eyebrow">Volume · Trigger</p>
-          <div className="figure">{num(curVol)}</div>
-          <div className="meter-row">
-            <div className="meter vol">
-              <i style={{ width: volPct + "%" }} />
-            </div>
-            <span className="thr">{calibrated ? `› ${num(thr.volume)}` : "cal…"}</span>
-          </div>
-          <span className="sub">
-            {!calibrated ? "calibrating threshold" : volArmed ? "above entry threshold" : "below entry threshold"} · base units
-          </span>
-        </article>
-
-        <article className="stat">
-          <p className="eyebrow">Position</p>
-          <div className="figure" style={{ fontSize: inPos ? 24 : 30 }}>
-            {inPos ? `LONG ${instrument.positionSize}` : "FLAT"}
-          </div>
-          {inPos && snapshot.position ? (
-            <>
-              <div className="meter-row">
-                <span className="thr">
-                  entry {snapshot.position.entryPrice.toFixed(d)} · open {usdt(snapshot.openPnl)}
-                </span>
-              </div>
-              <span className="sub">hold while orderflow positive</span>
-            </>
-          ) : (
-            <span className="sub" style={{ marginTop: "auto" }}>
-              {calibrated ? "awaiting next qualified entry" : "strategy not yet armed"}
-            </span>
-          )}
-        </article>
-      </section>
-
       {/* Calibration banner */}
       <section className="calib panel">
         <div>
@@ -294,7 +195,7 @@ export function LiveConsole() {
       </section>
 
       {/* Charts */}
-      <section className="workspace">
+      <section className="workspace" style={{ alignItems: "start" }}>
         <article className="panel" style={{ padding: "var(--pad)" }}>
           <div className="section-rule">
             <h2>Orderflow momentum</h2>
@@ -304,8 +205,73 @@ export function LiveConsole() {
             bars={bars}
             signals={snapshot.signals}
             threshold={calibrated ? thr.orderflow : 0}
+            volumeThreshold={calibrated ? thr.volume : 0}
             activeIndex={bars.length - 1}
           />
+
+          <div className="stack" style={{ marginTop: "var(--gap)" }}>
+            <article className="stat">
+              <p className="eyebrow">Live Price · {base}</p>
+              <div className="pair">
+                <span className="tag">BID {snapshot.lastBid ? snapshot.lastBid.toFixed(d) : "--"}</span>
+                <span className="tag">ASK {snapshot.lastAsk ? snapshot.lastAsk.toFixed(d) : "--"}</span>
+              </div>
+              <div className="figure" style={{ color: tickerColor(tickDir) }}>
+                {snapshot.lastPrice ? snapshot.lastPrice.toFixed(d) : "--"}
+              </div>
+              <span className="sub">{connected ? `${instrument.label} · real public feed` : "connecting to live feed…"}</span>
+            </article>
+
+            <article className="stat">
+              <p className="eyebrow">Orderflow · Trigger</p>
+              <div className={`figure ${curOf >= 0 ? "up" : "dn"}`}>
+                {curOf > 0 ? "+" : ""}
+                {num(curOf)}
+              </div>
+              <div className="meter-row">
+                <div className={`meter ${ofArmed ? "armed" : ""}`}>
+                  <i style={{ width: ofPct + "%" }} />
+                </div>
+                <span className="thr">{calibrated ? `› ${num(thr.orderflow)}` : "cal…"}</span>
+              </div>
+              <span className="sub">{!calibrated ? "calibrating threshold" : ofArmed ? "above entry threshold" : "below entry threshold"}</span>
+            </article>
+
+            <article className="stat">
+              <p className="eyebrow">Volume · Trigger</p>
+              <div className="figure">{num(curVol)}</div>
+              <div className="meter-row">
+                <div className="meter vol">
+                  <i style={{ width: volPct + "%" }} />
+                </div>
+                <span className="thr">{calibrated ? `› ${num(thr.volume)}` : "cal…"}</span>
+              </div>
+              <span className="sub">
+                {!calibrated ? "calibrating threshold" : volArmed ? "above entry threshold" : "below entry threshold"} · base units
+              </span>
+            </article>
+
+            <article className="stat">
+              <p className="eyebrow">Position</p>
+              <div className="figure" style={{ fontSize: inPos ? 24 : 30 }}>
+                {inPos ? `LONG ${instrument.positionSize}` : "FLAT"}
+              </div>
+              {inPos && snapshot.position ? (
+                <>
+                  <div className="meter-row">
+                    <span className="thr">
+                      entry {snapshot.position.entryPrice.toFixed(d)} · open {usdt(snapshot.openPnl)}
+                    </span>
+                  </div>
+                  <span className="sub">hold while orderflow positive</span>
+                </>
+              ) : (
+                <span className="sub" style={{ marginTop: "auto" }}>
+                  {calibrated ? "awaiting next qualified entry" : "strategy not yet armed"}
+                </span>
+              )}
+            </article>
+          </div>
         </article>
         <article className="panel" style={{ padding: "var(--pad)" }}>
           <div className="section-rule">
@@ -316,16 +282,13 @@ export function LiveConsole() {
         </article>
       </section>
 
-      {/* Blotter */}
-      <section className="panel" style={{ padding: "var(--pad)" }}>
-        <div className="section-rule">
-          <h2>Paper blotter</h2>
-          <span className="meta">
-            {snapshot.fills.length} fills · {closed} round-trips · {instrument.symbol}
-          </span>
-        </div>
-        <TradeLog fills={snapshot.fills} tickSize={instrument.tickSize} tickValue={tickValue} currency="USDT" priceDecimals={d} />
-      </section>
+      <SessionHistory
+        todayFills={snapshot.fills}
+        todaySymbol={instrument.symbol}
+        tickSize={instrument.tickSize}
+        tickValue={tickValue}
+        priceDecimals={d}
+      />
     </div>
   );
 }

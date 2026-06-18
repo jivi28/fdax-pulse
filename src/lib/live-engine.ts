@@ -36,7 +36,7 @@ export interface PendingDecision {
   fill: PaperFill;
 }
 
-interface OpenPosition {
+export interface OpenPosition {
   entryPrice: number;
   entryTime: string;
 }
@@ -140,6 +140,82 @@ export class LiveEngine {
       this.lastPrice = lastClose;
     }
     this.recalibrate();
+  }
+
+  /**
+   * Hydrate fills/trades/PnL/position from a persisted session. Restores the
+   * ledger only (not bars/ticks), so it must run before any ticks are
+   * ingested — mirrors seed()'s self-guard against double-initialization.
+   */
+  restoreState(state: {
+    fills: PaperFill[];
+    trades: ClosedTrade[];
+    realizedPnl: number;
+    position: OpenPosition | null;
+    thresholds: LiveThresholds;
+  }): void {
+    if (this.fills.length > 0 || this.position) return;
+    this.fills = state.fills;
+    this.trades = state.trades;
+    this.realizedPnl = state.realizedPnl;
+    this.position = state.position;
+    this.thresholds = state.thresholds;
+  }
+
+  /**
+   * Replay historical completed bars through the strategy itself (unlike
+   * seed(), which only calibrates). Used to "catch up" on whatever would have
+   * happened while no tab was open: a paper session shouldn't depend on the
+   * browser staying open the whole time. Always executes automatically —
+   * approval can't happen retroactively for bars that already closed, even in
+   * recommendation mode — and tags any resulting fills so that's visible.
+   */
+  catchUp(bars: Array<{ startMs: number; orderflow: number; volume: number; close: number }>): void {
+    // seed() already covers the most recent ~30 minutes for calibration only
+    // (no strategy applied) — those bars can overlap with this gap. Reuse the
+    // existing bar object instead of duplicating it, but still evaluate the
+    // strategy against it: seed() never does, so it must happen here.
+    const byId = new Map(this.bars.map((b) => [b.id, b] as const));
+    for (const raw of bars) {
+      const id = `${raw.startMs}`;
+      let bar = byId.get(id);
+      if (!bar) {
+        bar = {
+          id,
+          localTime: minuteLabel(raw.startMs),
+          close: raw.close,
+          bid: raw.close,
+          ask: raw.close,
+          orderflow: raw.orderflow,
+          volume: raw.volume,
+          buyVolume: 0,
+          sellVolume: 0,
+          unclassifiedVolume: 0,
+        };
+        this.bars.push(bar);
+        byId.set(id, bar);
+      } else {
+        // Overlaps a seed()-only bar — refresh it with this source's values
+        // (same underlying market data, fetched moments apart).
+        bar.close = raw.close;
+        bar.bid = raw.close;
+        bar.ask = raw.close;
+        bar.orderflow = raw.orderflow;
+        bar.volume = raw.volume;
+      }
+      this.recalibrate();
+      const before = this.fills.length;
+      this.applyStrategy(bar, "automatic");
+      if (this.fills.length > before) {
+        const fill = this.fills[this.fills.length - 1];
+        fill.reason = `Catch-up — ${fill.reason}`;
+      }
+    }
+    const lastClose = bars.at(-1)?.close;
+    if (lastClose !== undefined) {
+      this.prevTradePrice = lastClose;
+      this.lastPrice = lastClose;
+    }
   }
 
   /** Classify a single trade against the current quote (Lee-Ready). */
@@ -247,8 +323,9 @@ export class LiveEngine {
     };
   }
 
-  private applyStrategy(bar: MinuteBar): void {
-    const { instrument, decisionMode, dailyLossLimitUsd } = this.config;
+  private applyStrategy(bar: MinuteBar, decisionModeOverride?: DecisionMode): void {
+    const { instrument, dailyLossLimitUsd } = this.config;
+    const decisionMode = decisionModeOverride ?? this.config.decisionMode;
 
     if (this.position) {
       const marked = (bar.bid - this.position.entryPrice) * instrument.positionSize;

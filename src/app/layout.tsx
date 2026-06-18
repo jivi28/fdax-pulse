@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Newsreader, Archivo, IBM_Plex_Mono } from "next/font/google";
 
 import { SiteHeader } from "@/components/site-header";
@@ -42,7 +43,10 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <main className="shell">{children}</main>
         <footer className="shell ledger-footer">
           Research simulation only. Live data from a public crypto-futures feed; FDAX uses delayed/local data where applicable.
-          Paper only. No broker connection. No investment advice.
+          Paper only. No broker connection. No investment advice.{" "}
+          <Link href="/advanced" style={{ color: "inherit", textDecoration: "underline" }}>
+            Advanced
+          </Link>
         </footer>
       </body>
     </html>

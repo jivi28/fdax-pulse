@@ -4,8 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ConnectionStatus, DecisionMode, ExchangeId } from "@/lib/domain";
 import { LIVE_INSTRUMENTS } from "@/lib/domain";
-import { connectFeed, fetchSeedBars, type FeedConnection } from "@/lib/live-feed";
+import { connectFeed, fetchCatchUpBars, fetchSeedBars, type FeedConnection } from "@/lib/live-feed";
 import { LiveEngine, type LiveSnapshot } from "@/lib/live-engine";
+import { clearLiveSession, loadLiveSession, saveLiveSession } from "@/lib/live-session-store";
 
 const EXCHANGE_ORDER: ExchangeId[] = ["binance", "bybit"];
 const SNAPSHOT_INTERVAL_MS = 750;
@@ -57,6 +58,7 @@ export function useLiveSession(initialSymbol = "BTCUSDT", initialMode: DecisionM
   const openedRef = useRef(false);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const aliveRef = useRef(true);
+  const decisionModeRef = useRef(decisionMode);
 
   // (Re)build the engine and connect the feed whenever the instrument changes.
   useEffect(() => {
@@ -67,18 +69,51 @@ export function useLiveSession(initialSymbol = "BTCUSDT", initialMode: DecisionM
     exchangeIndexRef.current = 0;
     attemptsRef.current = 0;
 
-    // Seed recent history so the strategy calibrates and trades on load instead
-    // of warming up live for ~20 minutes. Failure is non-fatal (live warm-up).
-    void fetchSeedBars(instrument.symbol)
-      .then((seed) => {
-        if (aliveRef.current && engineRef.current === engine) {
-          engine.seed(seed);
-          setSnapshot(engine.snapshot());
-        }
-      })
-      .catch(() => {
-        /* region-blocked or offline: fall back to live warm-up */
+    // Restore today's fills/trades/PnL for this instrument before any ticks
+    // arrive, so a page refresh (or switching back to a prior instrument)
+    // doesn't lose the session. Engine mutation happens synchronously (must
+    // run before connect() below); the resulting setState is deferred a tick.
+    const persisted = loadLiveSession(instrument.symbol);
+    if (persisted) {
+      engine.restoreState(persisted);
+      void Promise.resolve().then(() => {
+        if (aliveRef.current && engineRef.current === engine) setSnapshot(engine.snapshot());
       });
+    }
+
+    // Seed recent history so the strategy calibrates and trades on load instead
+    // of warming up live for ~20 minutes, then — if there's a restored session
+    // — catch up on whatever would have happened between the last time this
+    // tab was open and now, so the session isn't only as good as its tab time.
+    async function bootstrap() {
+      try {
+        const seed = await fetchSeedBars(instrument.symbol);
+        if (!aliveRef.current || engineRef.current !== engine) return;
+        engine.seed(seed);
+        setSnapshot(engine.snapshot());
+      } catch {
+        /* region-blocked or offline: fall back to live warm-up */
+      }
+      if (!persisted) return;
+      try {
+        const gap = await fetchCatchUpBars(instrument.symbol, persisted.updatedAt);
+        if (!aliveRef.current || engineRef.current !== engine || gap.length === 0) return;
+        engine.catchUp(gap);
+        const next = engine.snapshot();
+        setSnapshot(next);
+        saveLiveSession(instrument.symbol, {
+          decisionMode: decisionModeRef.current,
+          realizedPnl: next.realizedPnl,
+          fills: next.fills,
+          trades: next.trades,
+          position: next.position,
+          thresholds: next.thresholds,
+        });
+      } catch {
+        /* offline: the live feed will pick up from now, no historical catch-up */
+      }
+    }
+    void bootstrap();
 
     function clearRetry() {
       if (retryTimerRef.current) {
@@ -124,7 +159,20 @@ export function useLiveSession(initialSymbol = "BTCUSDT", initialMode: DecisionM
 
     connect();
     const poll = setInterval(() => {
-      if (engineRef.current) setSnapshot(engineRef.current.snapshot());
+      const current = engineRef.current;
+      if (!current) return;
+      const next = current.snapshot();
+      setSnapshot(next);
+      if (next.fills.length > 0 || next.position) {
+        saveLiveSession(instrument.symbol, {
+          decisionMode: decisionModeRef.current,
+          realizedPnl: next.realizedPnl,
+          fills: next.fills,
+          trades: next.trades,
+          position: next.position,
+          thresholds: next.thresholds,
+        });
+      }
     }, SNAPSHOT_INTERVAL_MS);
 
     return () => {
@@ -140,6 +188,7 @@ export function useLiveSession(initialSymbol = "BTCUSDT", initialMode: DecisionM
 
   // Apply decision-mode changes without resetting the engine or feed.
   useEffect(() => {
+    decisionModeRef.current = decisionMode;
     engineRef.current?.setDecisionMode(decisionMode);
   }, [decisionMode]);
 
@@ -160,6 +209,7 @@ export function useLiveSession(initialSymbol = "BTCUSDT", initialMode: DecisionM
   }, []);
   const reset = useCallback(() => {
     const instrument = LIVE_INSTRUMENTS[instrumentSymbol] ?? LIVE_INSTRUMENTS.BTCUSDT;
+    clearLiveSession(instrument.symbol);
     const engine = new LiveEngine({ instrument, decisionMode, dailyLossLimitUsd: DEFAULT_LOSS_LIMIT_USD });
     engineRef.current = engine; // the live feed's onTick reads engineRef dynamically
     setSnapshot(emptySnapshot());

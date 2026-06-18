@@ -51,6 +51,30 @@ export async function fetchSeedBars(symbol: string, bars = 30): Promise<SeedBar[
   });
 }
 
+/**
+ * Fill the gap between a previous session's last known update and now, so the
+ * strategy can "catch up" on whatever would have happened while the tab was
+ * closed instead of only ever running while a tab is open. Same kline math as
+ * fetchSeedBars, but windowed from `sinceMs` and sized for an intraday gap
+ * (Binance allows up to 1500 1m bars per request — ~25h).
+ */
+export async function fetchCatchUpBars(symbol: string, sinceMs: number): Promise<SeedBar[]> {
+  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=1m&startTime=${sinceMs}&limit=1500`;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error(`klines ${response.status}`);
+  const rows = (await response.json()) as unknown[][];
+  return rows.slice(0, -1).map((row) => {
+    const volume = Number(row[5]);
+    const takerBuy = Number(row[9]);
+    return {
+      startMs: Number(row[0]),
+      orderflow: Math.round((2 * takerBuy - volume) * 1_000) / 1_000,
+      volume: Math.round(volume * 1_000) / 1_000,
+      close: Number(row[4]),
+    };
+  });
+}
+
 export interface FeedConnection {
   close: () => void;
 }

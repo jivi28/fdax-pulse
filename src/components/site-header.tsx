@@ -5,10 +5,7 @@ import { usePathname } from "next/navigation";
 
 const NAV: Array<[string, string]> = [
   ["/", "Live"],
-  ["/journal", "Journal"],
   ["/methodology", "Methodology"],
-  ["/advanced", "FDAX Replay"],
-  ["/setup", "Setup"],
 ];
 
 export function SiteHeader() {
