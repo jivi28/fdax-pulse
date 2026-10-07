@@ -25,3 +25,11 @@ pnpm-debug.log*
 *.sln
 *.sw?
 .vercel
+
+# Python worker
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+*.sqlite3
