@@ -1,0 +1,3 @@
+-- Intentionally empty.
+-- The accurate delayed-paper patch originally received a timestamp before the
+-- metadata enums it extends. Its DDL is in the later ordered migration.
